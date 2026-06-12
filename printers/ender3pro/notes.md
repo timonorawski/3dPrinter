@@ -2,8 +2,10 @@
 
 ## Modifications
 
-- **Board:** stock 8-bit Creality Melzi (atmega1284p), ~v1.1.3. Bootloader was already
-  replaced during the Marlin upgrade below, so Klipper flashes over USB — no Arduino-as-ISP needed.
+- **Board:** stock 8-bit Creality Melzi (atmega1284p), ~v1.1.3. Has a working serial bootloader —
+  Klipper flashed successfully via `make flash` over USB. (Manual `avrdude -c arduino` had thrown
+  "not in sync" earlier — likely wrong baud or the klippy service holding the port; `make flash`
+  handles baud/reset correctly. No ISP needed.) Future Klipper updates: just re-run `make flash`.
 - **Hotend upgrade for higher heat:** Spider hotend with a high-temp NTC thermistor
   (sold as a drop-in for the stock Ender thermistor, rated to ~450°C). Spec believed to be
   100K **β3950** (reasonable certainty; datasheet/order specs still being located).
@@ -39,15 +41,18 @@ max_temp: 315               # raised from sample's 250 for PA6-CF; sensor good t
 
 ### Post-flash followup (staged)
 
-**Stage 1 — commission on PETG (loaded today):**
+**Stage 1 — commission on PETG (in progress):**
 
-- [ ] Dump Marlin firmware for rollback (see above) BEFORE flashing.
-- [ ] Flash Klipper; apply `Generic 3950` + `max_temp: 315`.
-- [ ] Shake out motion / endstops; confirm e-steps (stock ~93, calibrate with 100mm extrude).
-- [ ] `PID_CALIBRATE HEATER=extruder TARGET=<PETG temp>` and bed; `SAVE_CONFIG`.
-- [ ] Run input shaper; let it set accel (leave sample's `max_accel: 3000` as the starting point —
-      do NOT downgrade to Marlin's stock 500).
-- [ ] First PETG prints to validate the whole setup.
+- [x] Flashed Klipper via `make flash` (USB); cfg has `Generic 3950` + `max_temp: 315`. Clean MCU connect.
+- [x] Endstops verified (`QUERY_ENDSTOPS`); homing X/Y/Z all correct direction; idle temps read ambient.
+- [~] `PID_CALIBRATE` extruder running; then bed (slower, 5–10 min); `SAVE_CONFIG` after each.
+      ⚠ `SAVE_CONFIG` writes tuned PID to the Pi's autosave block ONLY — pull those values back into
+      this repo cfg so it stays source-of-truth (don't let the Pi and repo drift).
+- [ ] E-steps check: extrude 100mm at PETG temp, measure; correct `rotation_distance` if not ~95
+      (Marlin was 93). Give me the leftover-from-120mm-mark + current rotation_distance for the math.
+- [ ] Input shaper — locate **ADXL345** in parts bin, `SHAPER_CALIBRATE` + `SAVE_CONFIG`. Leave
+      `max_accel: 3000` as the starting point meanwhile (do NOT downgrade to Marlin's stock 500).
+- [ ] First PETG print; dial Z offset live (`SET_GCODE_OFFSET` / babystep in Mainsail).
   - Note: at PETG temps (~235–245°C) the 3950-vs-EPCOS curve difference is only ~1–2°C, so the
     thermistor curve question does NOT block Stage 1.
 
