@@ -48,10 +48,26 @@ max_temp: 315               # raised from sample's 250 for PA6-CF; sensor good t
 - [~] `PID_CALIBRATE` extruder running; then bed (slower, 5–10 min); `SAVE_CONFIG` after each.
       ⚠ `SAVE_CONFIG` writes tuned PID to the Pi's autosave block ONLY — pull those values back into
       this repo cfg so it stays source-of-truth (don't let the Pi and repo drift).
-- [ ] E-steps check: extrude 100mm at PETG temp, measure; correct `rotation_distance` if not ~95
-      (Marlin was 93). Give me the leftover-from-120mm-mark + current rotation_distance for the math.
-- [ ] Input shaper — locate **ADXL345** in parts bin, `SHAPER_CALIBRATE` + `SAVE_CONFIG`. Leave
-      `max_accel: 3000` as the starting point meanwhile (do NOT downgrade to Marlin's stock 500).
+- [x] E-steps: **using the published Klipper default `rotation_distance: 34.406`** (= 3200/93 =
+      93 steps/mm). Changed from the repo cfg's old `33.683` (95 steps/mm), which was an anomaly —
+      NOT the upstream sample default. Resolves the 93-vs-95 question: Marlin's `M92 E93` and the
+      Klipper sample AGREE on 93; the 95 was the odd one out. The "oddly specific" 34.406 is just
+      93 steps/mm expressed in rotation_distance units (Klipper dropped steps/mm), not empirical
+      tuning. e-steps isn't an ooze knob — in Klipper ooze is handled by pressure advance +
+      retraction, decoupled from volume.
+  - [ ] Optional later: confirm with a 100mm extrude / 120mm-mark measure — a real measurement beats
+        both the 93 and 95 guesses. Give me the leftover + current rotation_distance for the math.
+- [ ] Input shaper — accelerometer wires to the **Pi GPIO**, NOT the Melzi (8-bit can't host it).
+      Host/Linux MCU needed either way (KIAUH → Linux MCU, `[mcu rpi]`). Then `SHAPER_CALIBRATE` +
+      `SAVE_CONFIG`. Leave `max_accel: 3000` meanwhile (do NOT downgrade to Marlin's stock 500).
+      Two chip options:
+  - **Interim: GY-87 / MPU6050** (on hand) — I²C, not SPI. Enable I²C (`raspi-config`); wire
+    SDA/SCL/3V3/GND (power from **3.3V**, not 5V — pull-ups would push 5V into Pi GPIO); set
+    `dtparam=i2c_arm_baudrate=400000`; `i2cdetect -y 1` should show **0x68**. Config: `[mpu9250]`
+    (driver handles the 6050) + `[resonance_tester] accel_chip: mpu9250`. Noisier/lower-bandwidth —
+    fine to knock down worst ringing; higher `MEASURE_AXES_NOISE` floor is expected.
+  - **Better: ADXL345** (in parts bin somewhere) — SPI. Enable SPI; `[adxl345]`. Redo for a cleaner
+    curve once found.
 - [ ] First PETG print; dial Z offset live (`SET_GCODE_OFFSET` / babystep in Mainsail).
   - Note: at PETG temps (~235–245°C) the 3950-vs-EPCOS curve difference is only ~1–2°C, so the
     thermistor curve question does NOT block Stage 1.
@@ -69,6 +85,14 @@ max_temp: 315               # raised from sample's 250 for PA6-CF; sensor good t
       `== 1` → it was run on the stock EPCOS curve.
 - [ ] Optional zero-ambiguity path: order a known-spec thermistor (PT1000 / named Semitec) if the
       validation is fuzzy or specs can't be found.
+
+### Future hardware
+
+- [ ] **Add ABL (BLTouch)** — hand-me-down from the v2 once its CR Touch arrives (CR Touch and
+      BLTouch are config-identical in Klipper, both `[bltouch]`, so the v2 swap is plug-and-play).
+      Pro currently has no probe (manual `[bed_screws]` only). Adds: `[bltouch]` (control + sensor
+      pins), `[safe_z_home]`, `[bed_mesh]`, probe x/y/z offsets; move Z homing from the endstop to
+      the probe. Set Z offset after mounting.
 
 ## last good official firmware
 
