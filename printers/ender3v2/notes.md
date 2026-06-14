@@ -182,3 +182,66 @@ Recv: Cap:CONFIG_EXPORT:0
 Recv: Cap:PROUI_AML:1
 Recv: area:{full:{min:{x:0.00,y:0.00,z:0.00},max:{x:230.00,y:231.00,z:250.00}},work:{min:{x:0.00,y:0.00,z:0.00},max:{x:230.00,y:230.00,z:250.00}}}
 `
+
+## Klipper migration — DO IT ALL AT ONCE (combined service event)
+
+Decision: the printer's already a good machine on the MRiscoC Marlin (modern fork, thermal
+protection + MPC), so migration isn't urgent. But when it does come out of service, batch
+**everything** into one downtime — each change (new hotend block, new heater, probe swap, Klipper
+flash) invalidates a calibration anyway, so doing them separately pays the full re-tune tax 3×. Do
+the hardware, then tune once.
+
+### Order first (gating — combined event waits on parts)
+
+- [ ] **High-flow block** for the Sprite (CHT-style / Volcano-length melt zone).
+- [ ] **24V 50–60W heater cartridge** (don't reuse the 40W — it'll temp-sag at high flow; see chain
+      below). 24V machine, so higher wattage is easy.
+- [x] CR Touch — already on order (replaces the BLTouch; freed BLTouch → the Pro).
+
+### The single downtime, in order
+
+1. **Mechanical:** install high-flow block + 50–60W heater on the Sprite; swap BLTouch → CR Touch
+   (KEEP the ~2mm riser — same body/clearance geometry, just re-set Z offset).
+2. **Flash Klipper** (4.2.2, via SD — see recipe below).
+3. **Apply config deltas** (below) to `klipper/printer-ender3v2S1.cfg`.
+4. **Tune once:** endstops/motion check → PID or MPC at temp → calibrate Sprite rotation_distance →
+   probe Z offset + `BED_MESH_CALIBRATE` → input shaper → pressure advance → high-flow volumetric
+   flow-rate test (find the real mm³/s ceiling).
+
+### Flash recipe (32-bit, via SD card — NOT `make flash`)
+
+`make menuconfig`: STM32 → STM32F103 → bootloader offset **28KiB** → 8 MHz crystal →
+**Serial USART1 (PA10/PA9)** (bridged to USB by the onboard CH340 → enumerates as
+`usb-1a86_USB_Serial-*`, already in the cfg; NOT USB CDC). Then `make` → copy `out/klipper.bin` to
+FAT32 SD; **filename must end `.bin` and differ from last flash** or the bootloader skips it.
+Power-cycle to flash.
+
+### Config deltas vs the stock Klipper sample (`klipper/printer-ender3v2S1.cfg`)
+
+All values below come from this machine's Marlin dump above — not guesses:
+
+- ⚠ **`rotation_distance: 7.53`** (Sprite, = 3200/424.9). Sample still has the WRONG stock-Bowden
+  `34.406` — off by ~4.5×. Verify by extrude-and-measure after.
+- **`position_max`: X 230, Y 230** (sample has 235); Z 250 is fine.
+- **`[extruder] max_temp: 275`** (sample has 250; Marlin `C104 T275`). Bump further if the high-flow
+  block + materials want it.
+- **Hotend control:** Marlin runs MPC (`M306`). Klipper supports `control: mpc` — mirror it, or just
+  `PID_CALIBRATE`. (Marlin PID/MPC numbers don't port to Klipper — recalibrate either way.)
+- **`[bltouch]`** (works for CR Touch too): `x_offset: -31.5`, `y_offset: -55.9`,
+  `z_offset:` ~3.94 (calibrate with `PROBE_CALIBRATE`). Add `[safe_z_home]` (home center) and
+  `[bed_mesh]`; Z homing moves off the endstop to the probe.
+- Add `[include mainsail.cfg]` + `[virtual_sdcard]` (Mainsail front-end, as on the Pro).
+- 32-bit MCU has far more step-rate headroom than the Pro's Melzi → expect to keep more accel after
+  input shaper.
+
+### High-flow speed-mod chain (why the heater matters)
+
+Speed = `flow ÷ (layer_height × line_width)`; the hotend melt rate is the real ceiling. Fix in order:
+1. **Melt rate** — high-flow block (Sprite stock ~10–15 mm³/s → 25–30+).
+2. **Heater watts** — the easy-to-forget one. More plastic/sec needs more thermal power; a high-flow
+   block on the stock 40W temp-sags and under-extrudes. 24V 50–60W fixes it.
+3. **Extruder grip** — Sprite dual-gear is strong; not the bottleneck.
+4. **Motion** — input shaper + high accel to actually reach the speed on real geometry.
+5. **Pressure advance** — non-negotiable at high flow or corners blob.
+
+High-flow + direct drive doesn't conflict with the flexibles role — it serves both.
